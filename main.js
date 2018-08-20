@@ -30,7 +30,7 @@ var app = http.createServer(function (request, response) {
         if (error) {
           throw error;
         }
-        db.query(`SELECT * FROM topic WHERE id=?`, [queryData.id], function (error2, topic) {
+        db.query(`SELECT * FROM topic LEFT JOIN author ON topic.author_id=author.id WHERE topic.id=?`, [queryData.id], function (error2, topic) {
           if (error2) {
             throw error2;
           }
@@ -39,7 +39,11 @@ var app = http.createServer(function (request, response) {
           var created = topic[0].created;
           var list = template.list(topics);
           var html = template.HTML(title, list,
-            `<h2>${title}</h2><p>${description}</p><p>${created}</p>`,
+            `
+            <h2>${title}</h2>
+            <p>${description}</p>
+            <p>작성자 ${topic[0].name}</p>
+            <p>${created}</p>`,
             ` <a href="/create">create</a>
               <a href="/update?id=${queryData.id}">update</a>
               <form action="delete_process" method="post">
@@ -52,55 +56,31 @@ var app = http.createServer(function (request, response) {
           response.end(html);
         });
       });
-
-      /*
-      fs.readdir('./data', function(error, filelist){
-        var filteredId = path.parse(queryData.id).base;
-        fs.readFile(`data/${filteredId}`, 'utf8', function(err, description){
-          var title = queryData.id;
-          var sanitizedTitle = sanitizeHtml(title);
-          var sanitizedDescription = sanitizeHtml(description, {
-            allowedTags:['h1']
-          });
-          var list = template.list(filelist);
-          var html = template.HTML(sanitizedTitle, list,
-            `<h2>${sanitizedTitle}</h2>${sanitizedDescription}`,
-            ` <a href="/create">create</a>
-              <a href="/update?id=${sanitizedTitle}">update</a>
-              <form action="delete_process" method="post">
-                <input type="hidden" name="id" value="${sanitizedTitle}">
-                <input type="submit" value="delete">
-              </form>`
-          );
-          response.writeHead(200);
-          response.end(html);
-        });
-      });
-      */
     }
   } else if (pathname === '/create') {
-    fs.readdir('./data', function (error, filelist) {
-      db.query(`SELECT * FROM topic`, function (error, topics) {
+    db.query(`SELECT * FROM topic`, function (error, topics) {
+      db.query(`SELECT * FROM author`, function (error2, authors) {
         var title = 'Create Page';
         var list = template.list(topics);
         var html = template.HTML(title, list,
           `<form action="/create_process" method="post">
-        <p><input type="text" name="title" placeholder="title"></p>
-        <p>
-          <textarea name="description" placeholder="description"></textarea>
-        </p>
-        <p>
-          <input type="submit">
-        </p>
-      </form>`,
+          <p><input type="text" name="title" placeholder="title"></p>
+          <p>
+            <textarea name="description" placeholder="description"></textarea>
+          </p>
+          <p>
+            ${template.authorSelect(authors)}
+          </p>
+          <p>
+            <input type="submit">
+          </p>
+        </form>`,
           `<a href="/create">create</a>`
         );
         response.writeHead(200);
         response.end(html);
       });
     });
-
-
   } else if (pathname === '/create_process') {
     var body = '';
     request.on('data', function (data) {
@@ -110,7 +90,7 @@ var app = http.createServer(function (request, response) {
       var post = qs.parse(body);
       db.query(`
           INSERT INTO topic (title, description, created, author_id) 
-            VALUES(?, ?, NOW(), ?)`, [post.title, post.description, 1],
+            VALUES(?, ?, NOW(), ?)`, [post.title, post.description, post.author],
         function (error, result) {
           if (error) {
             throw error;
@@ -131,24 +111,29 @@ var app = http.createServer(function (request, response) {
         if (error2) {
           throw error2;
         }
-        var list = template.list(topics);
-        var html = template.HTML(topic[0].title, list,
-          `
-            <form action="/update_process" method="post">
-              <input type="hidden" name="id" value="${topic[0].id}">
-              <p><input type="text" name="title" placeholder="title" value="${topic[0].title}"></p>
-              <p>
-                <textarea name="description" placeholder="description">${topic[0].description}</textarea>
-              </p>
-              <p>
-                <input type="submit">
-              </p>
-            </form>
-            `,
-          `<a href="/create">create</a> <a href="/update?id=${topic[0].id}">update</a>`
-        );
-        response.writeHead(200);
-        response.end(html);
+        db.query(`SELECT * FROM author`, function (error2, authors) {
+          var list = template.list(topics);
+          var html = template.HTML(topic[0].title, list,
+            `
+              <form action="/update_process" method="post">
+                <input type="hidden" name="id" value="${topic[0].id}">
+                <p><input type="text" name="title" placeholder="title" value="${topic[0].title}"></p>
+                <p>
+                  <textarea name="description" placeholder="description">${topic[0].description}</textarea>
+                </p>
+                <p>
+                  ${template.authorSelect(authors, topic[0].author_id)}
+                </p>
+                <p>
+                  <input type="submit">
+                </p>
+              </form>
+              `,
+            `<a href="/create">create</a> <a href="/update?id=${topic[0].id}">update</a>`
+          );
+          response.writeHead(200);
+          response.end(html);
+        });
       });
     });
   } else if (pathname === '/update_process') {
@@ -175,8 +160,8 @@ var app = http.createServer(function (request, response) {
       var id = post.id;
       var filteredId = path.parse(id).base;
 
-      db.query(`DELETE FROM topic WHERE id=?`,[post.id], function(error, result){
-        if(error){
+      db.query(`DELETE FROM topic WHERE id=?`, [post.id], function (error, result) {
+        if (error) {
           throw error;
         }
         response.writeHead(302, {
